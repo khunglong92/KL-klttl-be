@@ -1,0 +1,78 @@
+version: "3.9"
+
+services:
+  # -----------------------
+  # Postgres Database
+  # -----------------------
+  postgres-db:
+    image: postgres:15-alpine
+    container_name: postgres-db
+    environment:
+      POSTGRES_USER: ${DB_USER:-postgres}
+      POSTGRES_PASSWORD: ${DB_PASSWORD:-khunglong}
+      POSTGRES_DB: ${DB_NAME:-kimloaitamthienloc}
+    ports:
+      - '5432:5432'
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "pg_isready", "-U", "${DB_USER:-postgres}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    env_file:
+      - .env.production
+    networks:
+      - app_network
+
+  # -----------------------
+  # Redis (optional)
+  # -----------------------
+  redis:
+    image: redis:7-alpine
+    container_name: redis
+    ports:
+      - '6379:6379'
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - app_network
+
+  # -----------------------
+  # NestJS Backend
+  # -----------------------
+  nest-app:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: nest-app
+    ports:
+      - '3000:3000'
+    depends_on:
+      postgres-db:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    env_file:
+      - .env.production
+    restart: unless-stopped
+    networks:
+      - app_network
+
+# -----------------------
+# Volumes
+# -----------------------
+volumes:
+  postgres_data:
+
+# -----------------------
+# Network chung
+# -----------------------
+networks:
+  app_network:
+    driver: bridge
