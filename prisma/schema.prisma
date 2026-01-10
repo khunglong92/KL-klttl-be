@@ -184,26 +184,31 @@ model Quote {
 }
 
 model ContactInfo {
-  id                String    @id @default(uuid())
-  companyName       String    @map("company_name") @db.VarChar(255)
-  address           String    @db.Text
-  phone             String    @db.VarChar(50)
-  email             String    @db.VarChar(255)
-  workingHours      String    @map("working_hours") @db.VarChar(255)
-  googleMapUrl      String?   @map("google_map_url") @db.Text
-  foundingDate      DateTime? @map("founding_date")
-  companyType       String?   @map("company_type") @db.VarChar(255)
-  aboutUs           String?   @map("about_us") @db.Text
-  yearsOfExperience Int?      @map("years_of_experience")
-  projectsCompleted Int?      @map("projects_completed")
-  satisfiedClients  Int?      @map("satisfied_clients")
-  satisfactionRate  Int?      @map("satisfaction_rate")
-  mission           String?   @db.Text
-  vision            String?   @db.Text
-  facilitiesIntro   String?   @map("facilities_intro") @db.Text
-  profileIntro      String?   @map("profile_intro") @db.Text
-  createdAt         DateTime  @default(now()) @map("created_at")
-  updatedAt         DateTime  @updatedAt @map("updated_at")
+  id                    String    @id @default(uuid())
+  companyName           String    @map("company_name") @db.VarChar(255)
+  address               String    @db.Text
+  phone                 String    @db.VarChar(50)
+  email                 String    @db.VarChar(255)
+  workingHours          String    @map("working_hours") @db.VarChar(255)
+  googleMapUrl          String?   @map("google_map_url") @db.Text
+  foundingDate          DateTime? @map("founding_date")
+  companyType           String?   @map("company_type") @db.VarChar(255)
+  aboutUs               String?   @map("about_us") @db.Text
+  yearsOfExperience     Int?      @map("years_of_experience")
+  projectsCompleted     Int?      @map("projects_completed")
+  satisfiedClients      Int?      @map("satisfied_clients")
+  satisfactionRate      Int?      @map("satisfaction_rate")
+  mission               String?   @db.Text
+  vision                String?   @db.Text
+  facilitiesIntro       String?   @map("facilities_intro") @db.Text
+  profileIntro          String?   @map("profile_intro") @db.Text
+  coreValuesItems       String?   @map("core_values_items") @db.Text
+  coreValuesDescription String?   @map("core_values_description") @db.Text
+  servicesItems         String?   @map("services_items") @db.Text
+  servicesDescription   String?   @map("services_description") @db.Text
+  commitmentIntro       String?   @map("commitment_intro") @db.Text
+  createdAt             DateTime  @default(now()) @map("created_at")
+  updatedAt             DateTime  @updatedAt @map("updated_at")
 
   @@map("contact_info")
 }

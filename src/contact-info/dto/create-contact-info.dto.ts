@@ -144,4 +144,49 @@ export class CreateContactInfoDto {
   @IsOptional()
   @IsString()
   profileIntro?: string;
+
+  @ApiProperty({
+    description: 'Danh sách Giá trị cốt lõi (JSON)',
+    example: '[{"icon":"Target","title":"Chính xác","description":"Mô tả"}]',
+    required: false,
+  })
+  @IsOptional()
+  @IsString()
+  coreValuesItems?: string;
+
+  @ApiProperty({
+    description: 'Mô tả Giá trị cốt lõi (Rich Text)',
+    example: 'Chính xác trong từng chi tiết...',
+    required: false,
+  })
+  @IsOptional()
+  @IsString()
+  coreValuesDescription?: string;
+
+  @ApiProperty({
+    description: 'Danh sách Lĩnh vực ứng dụng (JSON)',
+    example: '[{"icon":"Settings","title":"Cơ khí","description":"Mô tả"}]',
+    required: false,
+  })
+  @IsOptional()
+  @IsString()
+  servicesItems?: string;
+
+  @ApiProperty({
+    description: 'Mô tả Lĩnh vực ứng dụng (Rich Text)',
+    example: 'Ngành gia công kim loại tấm...',
+    required: false,
+  })
+  @IsOptional()
+  @IsString()
+  servicesDescription?: string;
+
+  @ApiProperty({
+    description: 'Nội dung Cam kết của chúng tôi',
+    example: 'Cam kết mang đến sản phẩm chất lượng...',
+    required: false,
+  })
+  @IsOptional()
+  @IsString()
+  commitmentIntro?: string;
 }
