@@ -1,9 +1,6 @@
 # Stage 1: Builder
-FROM node:20-alpine AS builder
+FROM node:20 AS builder
 WORKDIR /app
-
-# Cài build tools (nếu Prisma/native deps cần)
-RUN apk add --no-cache python3 g++ make bash
 
 # Copy package files + cài deps
 COPY package.json yarn.lock ./
@@ -22,12 +19,11 @@ RUN npx prisma generate
 RUN yarn build
 
 # Stage 2: Production
-FROM node:20-alpine
+FROM node:20-slim
 WORKDIR /app
 
-# Non-root user
-RUN addgroup -S appgroup && adduser -S appuser -G appgroup
-USER appuser
+# Non-root user (built-in in official node images)
+USER node
 
 # Copy production artifacts
 COPY --from=builder /app/dist ./dist
