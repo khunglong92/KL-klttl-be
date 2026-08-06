@@ -1,4 +1,4 @@
-import { Injectable, NotFoundException } from '@nestjs/common';
+import { Injectable, NotFoundException, InternalServerErrorException } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
 import { CreateProviderProfileDto } from './dto/create-provider-profile.dto';
 import { UpdateProviderProfileDto } from './dto/update-provider-profile.dto';
@@ -56,30 +56,38 @@ export class AiProviderProfileService {
   }
 
   async list(): Promise<ProviderProfilePublic[]> {
-    const rows = await this.prisma.aiProviderProfile.findMany({
-      orderBy: { createdAt: 'asc' },
-    });
-    return rows.map((row) => this.toPublic(row));
+    try {
+      const rows = await this.prisma.aiProviderProfile.findMany({
+        orderBy: { createdAt: 'asc' },
+      });
+      return rows.map((row) => this.toPublic(row));
+    } catch (e) {
+      this.handleServiceError(e);
+    }
   }
 
   async create(
     dto: CreateProviderProfileDto,
     updatedBy?: string,
   ): Promise<ProviderProfilePublic> {
-    const existingCount = await this.prisma.aiProviderProfile.count();
-    const row = await this.prisma.aiProviderProfile.create({
-      data: {
-        name: dto.name,
-        provider: dto.provider ?? 'custom',
-        baseUrl: dto.baseUrl,
-        apiKeyEnc: dto.apiKey ? encryptApiKey(dto.apiKey) : null,
-        model: dto.model,
-        // First profile created is auto-activated.
-        isActive: existingCount === 0,
-        updatedBy,
-      },
-    });
-    return this.toPublic(row);
+    try {
+      const existingCount = await this.prisma.aiProviderProfile.count();
+      const row = await this.prisma.aiProviderProfile.create({
+        data: {
+          name: dto.name,
+          provider: dto.provider ?? 'custom',
+          baseUrl: dto.baseUrl,
+          apiKeyEnc: dto.apiKey ? encryptApiKey(dto.apiKey) : null,
+          model: dto.model,
+          // First profile created is auto-activated.
+          isActive: existingCount === 0,
+          updatedBy,
+        },
+      });
+      return this.toPublic(row);
+    } catch (e) {
+      this.handleServiceError(e);
+    }
   }
 
   async update(
@@ -88,19 +96,23 @@ export class AiProviderProfileService {
     updatedBy?: string,
   ): Promise<ProviderProfilePublic> {
     await this.findOrThrow(id);
-    const row = await this.prisma.aiProviderProfile.update({
-      where: { id },
-      data: {
-        ...(dto.name !== undefined && { name: dto.name }),
-        ...(dto.provider !== undefined && { provider: dto.provider }),
-        ...(dto.baseUrl !== undefined && { baseUrl: dto.baseUrl }),
-        ...(dto.model !== undefined && { model: dto.model }),
-        ...(dto.apiKey !== undefined &&
-          dto.apiKey !== '' && { apiKeyEnc: encryptApiKey(dto.apiKey) }),
-        updatedBy,
-      },
-    });
-    return this.toPublic(row);
+    try {
+      const row = await this.prisma.aiProviderProfile.update({
+        where: { id },
+        data: {
+          ...(dto.name !== undefined && { name: dto.name }),
+          ...(dto.provider !== undefined && { provider: dto.provider }),
+          ...(dto.baseUrl !== undefined && { baseUrl: dto.baseUrl }),
+          ...(dto.model !== undefined && { model: dto.model }),
+          ...(dto.apiKey !== undefined &&
+            dto.apiKey !== '' && { apiKeyEnc: encryptApiKey(dto.apiKey) }),
+          updatedBy,
+        },
+      });
+      return this.toPublic(row);
+    } catch (e) {
+      this.handleServiceError(e);
+    }
   }
 
   async delete(id: string): Promise<void> {
@@ -159,12 +171,36 @@ export class AiProviderProfileService {
   }
 
   private async findOrThrow(id: string): Promise<AiProviderProfile> {
-    const row = await this.prisma.aiProviderProfile.findUnique({
-      where: { id },
-    });
-    if (!row) {
-      throw new NotFoundException('Không tìm thấy cấu hình nhà cung cấp AI');
+    try {
+      const row = await this.prisma.aiProviderProfile.findUnique({
+        where: { id },
+      });
+      if (!row) {
+        throw new NotFoundException('Không tìm thấy cấu hình nhà cung cấp AI');
+      }
+      return row;
+    } catch (e) {
+      this.handleServiceError(e);
     }
-    return row;
+  }
+
+  private handleServiceError(error: any): never {
+    const message = error instanceof Error ? error.message : String(error);
+    if (message.includes('AI_CHAT_ENCRYPTION_SECRET')) {
+      throw new InternalServerErrorException(
+        'Lỗi cấu hình hệ thống: Thiếu biến môi trường AI_CHAT_ENCRYPTION_SECRET trên VPS. Vui lòng cấu hình biến này trong file env của Backend.',
+      );
+    }
+    if (
+      message.includes('does not exist') ||
+      message.includes('table') ||
+      message.includes('relation') ||
+      message.includes('P2021')
+    ) {
+      throw new InternalServerErrorException(
+        'Lỗi cơ sở dữ liệu: Bảng ai_provider_profiles không tồn tại. Vui lòng chạy lệnh migration để đồng bộ database.',
+      );
+    }
+    throw error;
   }
 }
