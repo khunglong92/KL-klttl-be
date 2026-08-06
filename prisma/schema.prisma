@@ -301,6 +301,48 @@ model Recruitment {
   @@map("recruitments")
 }
 
+enum AiChatRole {
+  USER
+  ASSISTANT
+}
+
+model AiChatSettings {
+  id           String   @id @default(uuid())
+  systemPrompt String   @map("system_prompt") @db.Text
+  temperature  Float    @default(0.4)
+  isEnabled    Boolean  @default(false) @map("is_enabled")
+  updatedAt    DateTime @updatedAt @map("updated_at")
+  updatedBy    String?  @map("updated_by") @db.VarChar(255)
+
+  @@map("ai_chat_settings")
+}
+
+model AiProviderProfile {
+  id        String   @id @default(uuid())
+  name      String   @db.VarChar(255)
+  provider  String   @default("custom") @db.VarChar(100)
+  baseUrl   String   @map("base_url") @db.Text
+  apiKeyEnc String?  @map("api_key_enc") @db.Text
+  model     String   @db.VarChar(255)
+  isActive  Boolean  @default(false) @map("is_active")
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+  updatedBy String?  @map("updated_by") @db.VarChar(255)
+
+  @@map("ai_provider_profiles")
+}
+
+model AiChatMessage {
+  id        String     @id @default(uuid())
+  sessionId String     @map("session_id") @db.VarChar(255)
+  role      AiChatRole
+  content   String     @db.Text
+  createdAt DateTime   @default(now()) @map("created_at")
+
+  @@index([sessionId])
+  @@map("ai_chat_messages")
+}
+
 model PriceQuote {
   id              String    @id @default(uuid())
   title           String    @db.VarChar(255)

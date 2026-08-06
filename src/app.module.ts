@@ -22,6 +22,7 @@ import { NewsModule } from './news/news.module';
 import { RecruitmentModule } from './recruitment/recruitment.module';
 import { PriceQuotesModule } from './price-quotes/price-quotes.module';
 import { StatisticsModule } from './statistics/statistics.module';
+import { AiChatModule } from './ai-chat/ai-chat.module';
 
 @Module({
   imports: [
@@ -44,6 +45,7 @@ import { StatisticsModule } from './statistics/statistics.module';
     RecruitmentModule,
     PriceQuotesModule,
     StatisticsModule,
+    AiChatModule,
   ],
   controllers: [AppController, ForceDeleteController],
   providers: [AppService],
