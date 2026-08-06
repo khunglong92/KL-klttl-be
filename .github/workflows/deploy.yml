@@ -4,10 +4,22 @@ on:
   push:
     branches:
       - master
+  # Cho phép chạy tay từ tab Actions trên GitHub — hữu ích khi chỉ đổi
+  # GitHub Secret (BE_ENV_FILE...) và cần đồng bộ lại VPS mà không muốn push code.
+  workflow_dispatch:
+
+# Nếu push liên tiếp, hủy các lần chạy cũ đang chờ/đang chạy để tránh
+# nhiều deploy tranh nhau container/network trên VPS cùng lúc.
+concurrency:
+  group: deploy-be-${{ github.ref }}
+  cancel-in-progress: true
 
 jobs:
   deploy:
     runs-on: ubuntu-latest
+    # Chặn trường hợp một step bị treo (SSH/pull mạng chậm) ăn hết nhiều giờ
+    # mà không ai biết — sau 20 phút coi như fail để dễ phát hiện & retry.
+    timeout-minutes: 20
 
     steps:
       # 1️⃣ Checkout source
@@ -43,25 +55,52 @@ jobs:
           host: ${{ secrets.VPS_HOST }}
           username: ${{ secrets.VPS_USER }}
           key: ${{ secrets.VPS_SSH_KEY }}
+          command_timeout: 15m
           script: |
+            set -e
+
+            echo "🔧 Sync env file từ GitHub Secret (single source of truth, không sửa tay trên VPS nữa)"
+            mkdir -p /home/deploy/env
+            cat > /home/deploy/env/be.env << '__BE_ENV_EOF__'
+            ${{ secrets.BE_ENV_FILE }}
+            __BE_ENV_EOF__
+            chmod 600 /home/deploy/env/be.env
+
+            echo "🔐 Login GHCR"
             docker login ghcr.io -u ${{ github.repository_owner }} -p ${{ secrets.GHCR_TOKEN }}
 
+            echo "⬇️ Pull new image"
             docker pull ghcr.io/${{ github.repository_owner }}/be-app:latest
 
-            # 🔥 Run database migrations using a temporary container on VPS
+            echo "🗄️ Run database migrations (dừng deploy ngay nếu migration lỗi)"
             docker run --rm \
               --network thienloc-net \
               --env-file /home/deploy/env/be.env \
               ghcr.io/${{ github.repository_owner }}/be-app:latest \
               npx prisma migrate deploy --config=prisma.config.js
 
-            # Stop and restart the backend application
+            echo "🛑 Stop old container"
             docker stop be-app || true
             docker rm be-app || true
 
+            echo "🚀 Run new container"
             docker run -d \
               --name be-app \
               --network thienloc-net \
               -p 4000:4000 \
               --env-file /home/deploy/env/be.env \
+              --restart unless-stopped \
               ghcr.io/${{ github.repository_owner }}/be-app:latest
+
+            echo "🩺 Health check: đợi container thật sự chạy ổn định"
+            sleep 5
+            if [ "$(docker inspect -f '{{.State.Running}}' be-app)" != "true" ]; then
+              echo "❌ Container be-app không chạy sau khi start. Logs:"
+              docker logs --tail 100 be-app
+              exit 1
+            fi
+            echo "✅ BE container status"
+            docker ps | grep be-app
+
+            echo "🧹 Dọn image cũ (giữ image đang dùng, xoá image không còn container nào tham chiếu)"
+            docker image prune -f
