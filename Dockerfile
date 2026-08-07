@@ -31,20 +31,29 @@ COPY --from=builder /app/node_modules/@prisma/client ./node_modules/@prisma/clie
 FROM node:20-slim
 WORKDIR /app
 
-# Non-root user (built-in in official node images)
-USER node
+# node:20-slim không có OpenSSL sẵn — thiếu nó Prisma không detect được
+# libssl và cố tự tải lại engine binary lúc runtime (rồi ghi đè thất bại
+# vì chạy non-root ở dưới). Cài openssl để Prisma resolve engine đúng ngay
+# từ đầu, không cần "tự chữa" lúc runtime nữa.
+RUN apt-get update -y \
+    && apt-get install -y --no-install-recommends openssl \
+    && rm -rf /var/lib/apt/lists/*
 
-# Copy production artifacts
-COPY --from=builder /app/dist ./dist
-COPY --from=deps /app/node_modules ./node_modules
-COPY --from=builder /app/prisma ./prisma
+# Copy production artifacts với quyền sở hữu thuộc user "node" luôn (COPY
+# --from mặc định copy quyền root, non-root user bên dưới sẽ không ghi được)
+COPY --from=builder --chown=node:node /app/dist ./dist
+COPY --from=deps --chown=node:node /app/node_modules ./node_modules
+COPY --from=builder --chown=node:node /app/prisma ./prisma
 
 # prisma.config.js cần có mặt để "npx prisma migrate deploy --config=prisma.config.js"
 # chạy được trong image production (bị bỏ sót khi tách stage deps ở trên)
-COPY --from=builder /app/prisma.config.js ./prisma.config.js
+COPY --from=builder --chown=node:node /app/prisma.config.js ./prisma.config.js
 
 # ✅ Copy images folder để UploadService tìm thấy logo
-COPY --from=builder /app/src/images ./src/images
+COPY --from=builder --chown=node:node /app/src/images ./src/images
+
+# Non-root user (built-in in official node images)
+USER node
 
 EXPOSE 3000
 CMD ["node", "dist/main.js"]
