@@ -39,11 +39,17 @@ const STOPWORDS = new Set([
 ]);
 
 function normalize(text: string): string {
-  return text
-    .normalize('NFD')
-    .replace(/\p{Diacritic}/gu, '')
-    .toLowerCase()
-    .replace(/[^a-z0-9\s]/g, ' ');
+  return (
+    text
+      .normalize('NFD')
+      .replace(/\p{Diacritic}/gu, '')
+      // Chữ "đ" là ký tự riêng trong Unicode, KHÔNG bị NFD tách ra như các chữ
+      // có dấu khác — nếu không map về "d" thì bị xoá luôn ở bước strip dưới,
+      // làm mất tín hiệu so khớp (VD: "đẩy" sẽ còn lại "ay" thay vì "day").
+      .replace(/đ/gi, 'd')
+      .toLowerCase()
+      .replace(/[^a-z0-9\s]/g, ' ')
+  );
 }
 
 function tokenize(text: string): string[] {
@@ -151,14 +157,20 @@ export class AiChatRagService {
       queryTokens,
       news,
       (n) => `${n.title} ${n.subtitle ?? ''}`,
-      2,
+      3,
     );
     if (topNews.length > 0) {
       const lines = topNews.map((item) => {
         const url = `/news/${item.id}`;
-        return `- [Tin tức](${url}) "${item.title}": ${item.subtitle ?? ''}. Link: ${url}`;
+        return `- [Xem thêm](${url}) "${item.title}": ${item.subtitle ?? ''}. Link: ${url}`;
       });
-      sections.push(`THÔNG TIN TIN TỨC LIÊN QUAN:\n${lines.join('\n')}`);
+      // Lưu ý: mục "Tin tức" của website này cũng được dùng để trưng bày các
+      // danh mục/nhóm sản phẩm cụ thể (VD: "Xe đẩy trong sản xuất", "Kệ siêu
+      // thị"...), KHÔNG chỉ là bài viết blog thông thường — nên vẫn phải coi
+      // là kết quả hợp lệ khi khách hỏi về sản phẩm/danh mục.
+      sections.push(
+        `THÔNG TIN TIN TỨC / DANH MỤC SẢN PHẨM LIÊN QUAN (mục "Tin tức" của website này cũng dùng để giới thiệu các nhóm sản phẩm cụ thể, không chỉ bài viết thông thường):\n${lines.join('\n')}`,
+      );
     }
 
     const topRecruitments = topMatches(
