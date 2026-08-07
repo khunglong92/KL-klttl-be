@@ -76,12 +76,24 @@ jobs:
           script: |
             set -e
 
-            echo "🔧 Sync env file từ GitHub Secret (single source of truth, không sửa tay trên VPS nữa)"
+            echo "🔧 Sync env file từ GitHub Secret (nếu secret đã có nội dung)"
             mkdir -p /home/deploy/env
-            cat > /home/deploy/env/be.env << '__BE_ENV_EOF__'
+            cat > /tmp/be.env.new << '__BE_ENV_EOF__'
             ${{ secrets.BE_ENV_FILE }}
             __BE_ENV_EOF__
-            chmod 600 /home/deploy/env/be.env
+
+            if [ -s /tmp/be.env.new ] && grep -q '=' /tmp/be.env.new; then
+              mv /tmp/be.env.new /home/deploy/env/be.env
+              chmod 600 /home/deploy/env/be.env
+              echo "✅ Đã đồng bộ be.env từ GitHub Secret BE_ENV_FILE"
+            else
+              rm -f /tmp/be.env.new
+              echo "⚠️  Secret BE_ENV_FILE trống hoặc chưa được tạo — GIỮ NGUYÊN be.env hiện có trên VPS, không ghi đè."
+              if [ ! -s /home/deploy/env/be.env ]; then
+                echo "❌ /home/deploy/env/be.env không tồn tại/trống trên VPS và secret cũng trống. Dừng deploy."
+                exit 1
+              fi
+            fi
 
             echo "🔐 Login GHCR"
             docker login ghcr.io -u ${{ github.repository_owner }} -p ${{ secrets.GHCR_TOKEN }}
