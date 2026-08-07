@@ -8,25 +8,31 @@ on:
   # GitHub Secret (BE_ENV_FILE...) và cần đồng bộ lại VPS mà không muốn push code.
   workflow_dispatch:
 
-# Nếu push liên tiếp, hủy các lần chạy cũ đang chờ/đang chạy để tránh
-# nhiều deploy tranh nhau container/network trên VPS cùng lúc.
 concurrency:
   group: deploy-be-${{ github.ref }}
   cancel-in-progress: true
 
 jobs:
-  deploy:
+  # =========================
+  # Job 1: Build & push image
+  # =========================
+  build:
+    name: Build & push image
     runs-on: ubuntu-latest
-    # Chặn trường hợp một step bị treo (SSH/pull mạng chậm) ăn hết nhiều giờ
-    # mà không ai biết — sau 20 phút coi như fail để dễ phát hiện & retry.
     timeout-minutes: 20
+    outputs:
+      tag: ${{ steps.meta.outputs.tag }}
 
     steps:
-      # 1️⃣ Checkout source
       - name: Checkout source
         uses: actions/checkout@v4
 
-      # 2️⃣ Login GHCR
+      # Tag theo git SHA để VPS chạy đúng chính xác bản vừa build (rollback được
+      # bằng cách deploy lại 1 SHA cũ), không chỉ phụ thuộc vào "latest" mơ hồ.
+      - name: Set image tag
+        id: meta
+        run: echo "tag=${GITHUB_SHA::7}" >> "$GITHUB_OUTPUT"
+
       - name: Login to GitHub Container Registry
         uses: docker/login-action@v3
         with:
@@ -34,21 +40,32 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GHCR_TOKEN }}
 
-      # 3️⃣ Set up Docker Buildx (for caching)
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
 
-      # 4️⃣ Build & push BE image with GHA Cache
       - name: Build & push BE image
         uses: docker/build-push-action@v5
         with:
           context: .
           push: true
-          tags: ghcr.io/${{ github.repository_owner }}/be-app:latest
+          tags: |
+            ghcr.io/${{ github.repository_owner }}/be-app:latest
+            ghcr.io/${{ github.repository_owner }}/be-app:${{ steps.meta.outputs.tag }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
 
-      # 5️⃣ Deploy to VPS
+  # =========================
+  # Job 2: Deploy to VPS
+  # (job riêng — nếu chỉ bước SSH/deploy lỗi, có thể "Re-run failed jobs"
+  # để chạy lại đúng job này, không cần build lại image từ đầu)
+  # =========================
+  deploy:
+    name: Deploy to server
+    needs: build
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+
+    steps:
       - name: Deploy to VPS via SSH
         uses: appleboy/ssh-action@v1.0.3
         with:
@@ -69,14 +86,15 @@ jobs:
             echo "🔐 Login GHCR"
             docker login ghcr.io -u ${{ github.repository_owner }} -p ${{ secrets.GHCR_TOKEN }}
 
-            echo "⬇️ Pull new image"
-            docker pull ghcr.io/${{ github.repository_owner }}/be-app:latest
+            echo "⬇️ Pull image (tag: ${{ needs.build.outputs.tag }})"
+            docker pull ghcr.io/${{ github.repository_owner }}/be-app:${{ needs.build.outputs.tag }}
+            docker tag ghcr.io/${{ github.repository_owner }}/be-app:${{ needs.build.outputs.tag }} ghcr.io/${{ github.repository_owner }}/be-app:latest
 
             echo "🗄️ Run database migrations (dừng deploy ngay nếu migration lỗi)"
             docker run --rm \
               --network thienloc-net \
               --env-file /home/deploy/env/be.env \
-              ghcr.io/${{ github.repository_owner }}/be-app:latest \
+              ghcr.io/${{ github.repository_owner }}/be-app:${{ needs.build.outputs.tag }} \
               npx prisma migrate deploy --config=prisma.config.js
 
             echo "🛑 Stop old container"
@@ -90,7 +108,7 @@ jobs:
               -p 4000:4000 \
               --env-file /home/deploy/env/be.env \
               --restart unless-stopped \
-              ghcr.io/${{ github.repository_owner }}/be-app:latest
+              ghcr.io/${{ github.repository_owner }}/be-app:${{ needs.build.outputs.tag }}
 
             echo "🩺 Health check: đợi container thật sự chạy ổn định"
             sleep 5

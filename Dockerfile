@@ -39,6 +39,10 @@ COPY --from=builder /app/dist ./dist
 COPY --from=deps /app/node_modules ./node_modules
 COPY --from=builder /app/prisma ./prisma
 
+# prisma.config.js cần có mặt để "npx prisma migrate deploy --config=prisma.config.js"
+# chạy được trong image production (bị bỏ sót khi tách stage deps ở trên)
+COPY --from=builder /app/prisma.config.js ./prisma.config.js
+
 # ✅ Copy images folder để UploadService tìm thấy logo
 COPY --from=builder /app/src/images ./src/images
 
