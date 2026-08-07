@@ -76,13 +76,26 @@ interface ScoredItem<T> {
   score: number;
 }
 
+// Trọng số tên/tiêu đề so với mô tả — câu hỏi gõ trúng tên sản phẩm (VD:
+// "ghế sofa" khớp đúng tên "GHẾ SOFA") phải luôn nổi bật rõ ràng, không bị
+// pha loãng ngang hàng với vài từ trùng ngẫu nhiên trong mô tả dài của các
+// sản phẩm khác. Nhân trực tiếp điểm khớp tên, không nhắc lại chuỗi (vì
+// scoreText khử trùng lặp token bằng Set nên nhắc lại chuỗi không có tác
+// dụng gì).
+const NAME_MATCH_WEIGHT = 3;
+
 function scoreAll<T>(
   queryTokens: string[],
   items: T[],
   buildText: (item: T) => string,
+  buildName?: (item: T) => string,
 ): ScoredItem<T>[] {
   return items
-    .map((item) => ({ item, score: scoreText(queryTokens, buildText(item)) }))
+    .map((item) => {
+      const baseScore = scoreText(queryTokens, buildText(item));
+      const nameScore = buildName ? scoreText(queryTokens, buildName(item)) : 0;
+      return { item, score: baseScore + nameScore * (NAME_MATCH_WEIGHT - 1) };
+    })
     .filter((x) => x.score > 0)
     .sort((a, b) => b.score - a.score);
 }
@@ -228,7 +241,12 @@ export class AiChatRagService {
     const bestMatches: BestMatch[] = [];
 
     for (const cfg of categories) {
-      const scored = scoreAll(queryTokens, cfg.items, cfg.buildText);
+      const scored = scoreAll(
+        queryTokens,
+        cfg.items,
+        cfg.buildText,
+        cfg.buildName,
+      );
       if (scored.length === 0) continue;
 
       const lines = scored
