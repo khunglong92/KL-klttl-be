@@ -99,7 +99,7 @@ export class AiChatService {
       throw new Error('CHAT_DISABLED');
     }
 
-    const [context, history] = await Promise.all([
+    const [rag, history] = await Promise.all([
       this.ragService.buildContext(message),
       this.getHistory(sessionId),
     ]);
@@ -111,7 +111,7 @@ export class AiChatService {
     const messages: ChatCompletionMessage[] = [
       {
         role: 'system',
-        content: `${settings.systemPrompt}\n\n--- DỮ LIỆU THAM KHẢO (RAG) ---\n${context}`,
+        content: `${settings.systemPrompt}\n\n--- DỮ LIỆU THAM KHẢO (RAG) ---\n${rag.context}`,
       },
       ...history,
       { role: 'user', content: message },
@@ -135,6 +135,24 @@ export class AiChatService {
         errorMessage: err instanceof Error ? err.message : String(err),
       });
       throw err;
+    }
+
+    // Lưới an toàn: với MỖI danh mục (sản phẩm/dịch vụ/tin tức/tuyển dụng)
+    // mà RAG tìm được 1 mục khớp đủ tin cậy nhưng AI trả lời quên kèm link
+    // theo hướng dẫn trong system prompt, tự chèn thêm — không phụ thuộc
+    // hoàn toàn vào việc model có "nghe lời" prompt hay không. Mỗi danh mục
+    // độc lập, không chỉ 1 gợi ý chung cho cả câu trả lời.
+    const missingMatches = rag.bestMatches.filter(
+      (m) => !assembled.includes(m.url),
+    );
+    if (assembled.trim().length > 0 && missingMatches.length > 0) {
+      const suffix =
+        '\n\n' +
+        missingMatches
+          .map((m) => `👉 ${m.label}: [${m.name}](${m.url})`)
+          .join('\n');
+      assembled += suffix;
+      yield suffix;
     }
 
     if (assembled.trim().length > 0) {
