@@ -324,7 +324,10 @@ model AiProviderProfile {
   baseUrl   String   @map("base_url") @db.Text
   apiKeyEnc String?  @map("api_key_enc") @db.Text
   model     String   @db.VarChar(255)
+  // Nhiều provider có thể isActive=true cùng lúc — dùng làm pool fallback,
+  // thử theo thứ tự priority tăng dần (0 = thử trước) khi provider trước lỗi.
   isActive  Boolean  @default(false) @map("is_active")
+  priority  Int      @default(0)
   createdAt DateTime @default(now()) @map("created_at")
   updatedAt DateTime @updatedAt @map("updated_at")
   updatedBy String?  @map("updated_by") @db.VarChar(255)
@@ -341,6 +344,19 @@ model AiChatMessage {
 
   @@index([sessionId])
   @@map("ai_chat_messages")
+}
+
+// Log lỗi khi gọi AI provider thất bại (timeout, sai key, hết quota, 404 baseUrl...)
+// để admin theo dõi & xử lý kịp thời, thay cho việc phải đọc toàn bộ lịch sử chat.
+model AiChatErrorLog {
+  id           String   @id @default(uuid())
+  sessionId    String?  @map("session_id") @db.VarChar(255)
+  providerName String?  @map("provider_name") @db.VarChar(255)
+  errorMessage String   @map("error_message") @db.Text
+  createdAt    DateTime @default(now()) @map("created_at")
+
+  @@index([createdAt])
+  @@map("ai_chat_error_logs")
 }
 
 model PriceQuote {

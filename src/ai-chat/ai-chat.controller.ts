@@ -27,11 +27,13 @@ import { AiChatService } from './ai-chat.service';
 import { AiChatSettingsService } from './ai-chat-settings.service';
 import { AiProviderProfileService } from './ai-provider-profile.service';
 import { AiChatOpenAiClientService } from './ai-chat-openai-client.service';
+import { AiChatErrorLogService } from './ai-chat-error-log.service';
 import { SendMessageDto } from './dto/send-message.dto';
 import { UpdateChatSettingsDto } from './dto/update-chat-settings.dto';
 import { CreateProviderProfileDto } from './dto/create-provider-profile.dto';
 import { UpdateProviderProfileDto } from './dto/update-provider-profile.dto';
 import { TestProviderDraftDto } from './dto/test-provider-draft.dto';
+import { SetProviderActiveDto } from './dto/set-provider-active.dto';
 
 @ApiTags('AI Chat')
 @Controller('ai-chat')
@@ -41,6 +43,7 @@ export class AiChatController {
     private readonly settingsService: AiChatSettingsService,
     private readonly providerProfileService: AiProviderProfileService,
     private readonly openaiClient: AiChatOpenAiClientService,
+    private readonly errorLogService: AiChatErrorLogService,
   ) {}
 
   @Get('public-status')
@@ -48,9 +51,9 @@ export class AiChatController {
   @ApiResponse({ status: 200, description: 'Trạng thái chatbot' })
   async getPublicStatus(): Promise<{ isEnabled: boolean }> {
     const settings = await this.settingsService.getRuntimeConfig();
-    const provider =
-      await this.providerProfileService.getActiveDecryptedForRuntime();
-    return { isEnabled: settings.isEnabled && !!provider };
+    const providers =
+      await this.providerProfileService.getActiveProvidersForRuntime();
+    return { isEnabled: settings.isEnabled && providers.length > 0 };
   }
 
   @Post('send')
@@ -150,13 +153,19 @@ export class AiChatController {
     await this.providerProfileService.delete(id);
   }
 
-  @Post('providers/:id/activate')
+  @Put('providers/:id/active')
   @UseGuards(JwtAuthGuard, RolesGuard)
   @Roles(UserRole.ADMIN)
   @ApiBearerAuth()
-  @ApiOperation({ summary: 'Kích hoạt một cấu hình nhà cung cấp AI' })
-  activateProvider(@Param('id') id: string) {
-    return this.providerProfileService.activate(id);
+  @ApiOperation({
+    summary:
+      'Bật/tắt 1 provider trong pool fallback (nhiều provider có thể cùng bật)',
+  })
+  setProviderActive(
+    @Param('id') id: string,
+    @Body() dto: SetProviderActiveDto,
+  ) {
+    return this.providerProfileService.setActive(id, dto.isActive);
   }
 
   @Post('providers/:id/test')
@@ -182,15 +191,20 @@ export class AiChatController {
     });
   }
 
-  @Get('logs')
+  @Get('error-logs')
   @UseGuards(JwtAuthGuard, RolesGuard)
   @Roles(UserRole.ADMIN, UserRole.MANAGER)
   @ApiBearerAuth()
-  @ApiOperation({ summary: 'Nhật ký hội thoại (phân trang theo phiên)' })
+  @ApiOperation({
+    summary: 'Nhật ký lỗi khi gọi AI provider (để theo dõi & xử lý kịp thời)',
+  })
   @ApiQuery({ name: 'page', required: false, type: Number })
   @ApiQuery({ name: 'pageSize', required: false, type: Number })
-  getLogs(@Query('page') page?: string, @Query('pageSize') pageSize?: string) {
-    return this.aiChatService.getLogs(
+  getErrorLogs(
+    @Query('page') page?: string,
+    @Query('pageSize') pageSize?: string,
+  ) {
+    return this.errorLogService.getLogs(
       page ? parseInt(page, 10) : 1,
       pageSize ? parseInt(pageSize, 10) : 20,
     );

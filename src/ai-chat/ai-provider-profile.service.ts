@@ -1,4 +1,8 @@
-import { Injectable, NotFoundException, InternalServerErrorException } from '@nestjs/common';
+import {
+  Injectable,
+  NotFoundException,
+  InternalServerErrorException,
+} from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
 import { CreateProviderProfileDto } from './dto/create-provider-profile.dto';
 import { UpdateProviderProfileDto } from './dto/update-provider-profile.dto';
@@ -18,9 +22,17 @@ export interface ProviderProfilePublic {
   hasApiKey: boolean;
   model: string;
   isActive: boolean;
+  priority: number;
   createdAt: Date;
   updatedAt: Date;
   updatedBy: string | null;
+}
+
+export interface RuntimeProviderConfig {
+  name: string;
+  baseUrl: string;
+  apiKey: string | null;
+  model: string;
 }
 
 @Injectable()
@@ -49,6 +61,7 @@ export class AiProviderProfileService {
       hasApiKey,
       model: row.model,
       isActive: row.isActive,
+      priority: row.priority,
       createdAt: row.createdAt,
       updatedAt: row.updatedAt,
       updatedBy: row.updatedBy,
@@ -58,7 +71,7 @@ export class AiProviderProfileService {
   async list(): Promise<ProviderProfilePublic[]> {
     try {
       const rows = await this.prisma.aiProviderProfile.findMany({
-        orderBy: { createdAt: 'asc' },
+        orderBy: [{ priority: 'asc' }, { createdAt: 'asc' }],
       });
       return rows.map((row) => this.toPublic(row));
     } catch (e) {
@@ -79,8 +92,10 @@ export class AiProviderProfileService {
           baseUrl: dto.baseUrl,
           apiKeyEnc: dto.apiKey ? encryptApiKey(dto.apiKey) : null,
           model: dto.model,
-          // First profile created is auto-activated.
+          // Provider đầu tiên tạo tự động bật; provider sau xếp cuối hàng
+          // fallback theo mặc định (priority = số provider hiện có).
           isActive: existingCount === 0,
+          priority: dto.priority ?? existingCount,
           updatedBy,
         },
       });
@@ -104,6 +119,7 @@ export class AiProviderProfileService {
           ...(dto.provider !== undefined && { provider: dto.provider }),
           ...(dto.baseUrl !== undefined && { baseUrl: dto.baseUrl }),
           ...(dto.model !== undefined && { model: dto.model }),
+          ...(dto.priority !== undefined && { priority: dto.priority }),
           ...(dto.apiKey !== undefined &&
             dto.apiKey !== '' && { apiKeyEnc: encryptApiKey(dto.apiKey) }),
           updatedBy,
@@ -120,35 +136,34 @@ export class AiProviderProfileService {
     await this.prisma.aiProviderProfile.delete({ where: { id } });
   }
 
-  async activate(id: string): Promise<ProviderProfilePublic> {
+  /**
+   * Bật/tắt 1 provider trong pool fallback — KHÔNG đụng tới provider khác,
+   * cho phép nhiều provider cùng active để tự động fallback khi 1 provider lỗi.
+   */
+  async setActive(
+    id: string,
+    isActive: boolean,
+  ): Promise<ProviderProfilePublic> {
     await this.findOrThrow(id);
-    const [, row] = await this.prisma.$transaction([
-      this.prisma.aiProviderProfile.updateMany({
-        where: { NOT: { id } },
-        data: { isActive: false },
-      }),
-      this.prisma.aiProviderProfile.update({
-        where: { id },
-        data: { isActive: true },
-      }),
-    ]);
+    const row = await this.prisma.aiProviderProfile.update({
+      where: { id },
+      data: { isActive },
+    });
     return this.toPublic(row);
   }
 
-  async getActiveDecryptedForRuntime(): Promise<{
-    baseUrl: string;
-    apiKey: string | null;
-    model: string;
-  } | null> {
-    const row = await this.prisma.aiProviderProfile.findFirst({
+  /** Toàn bộ provider đang bật, sắp theo thứ tự thử fallback (priority tăng dần). */
+  async getActiveProvidersForRuntime(): Promise<RuntimeProviderConfig[]> {
+    const rows = await this.prisma.aiProviderProfile.findMany({
       where: { isActive: true },
+      orderBy: [{ priority: 'asc' }, { createdAt: 'asc' }],
     });
-    if (!row) return null;
-    return {
+    return rows.map((row) => ({
+      name: row.name,
       baseUrl: row.baseUrl,
       apiKey: row.apiKeyEnc ? this.safeDecrypt(row.apiKeyEnc) : null,
       model: row.model,
-    };
+    }));
   }
 
   async getDecryptedById(

@@ -6,6 +6,7 @@ import { AiChatSettingsService } from './ai-chat-settings.service';
 import { AiProviderProfileService } from './ai-provider-profile.service';
 import { AiChatRagService } from './ai-chat-rag.service';
 import { AiChatOpenAiClientService } from './ai-chat-openai-client.service';
+import { AiChatErrorLogService } from './ai-chat-error-log.service';
 
 @Module({
   imports: [ContactInfoModule],
@@ -16,6 +17,7 @@ import { AiChatOpenAiClientService } from './ai-chat-openai-client.service';
     AiProviderProfileService,
     AiChatRagService,
     AiChatOpenAiClientService,
+    AiChatErrorLogService,
   ],
 })
 export class AiChatModule {}

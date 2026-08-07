@@ -61,6 +61,20 @@ function scoreText(queryTokens: string[], text: string): number {
   return score;
 }
 
+function topMatches<T>(
+  queryTokens: string[],
+  items: T[],
+  buildText: (item: T) => string,
+  topN = 3,
+): T[] {
+  return items
+    .map((item) => ({ item, score: scoreText(queryTokens, buildText(item)) }))
+    .filter((x) => x.score > 0)
+    .sort((a, b) => b.score - a.score)
+    .slice(0, topN)
+    .map((x) => x.item);
+}
+
 @Injectable()
 export class AiChatRagService {
   constructor(
@@ -71,42 +85,47 @@ export class AiChatRagService {
   async buildContext(question: string): Promise<string> {
     const queryTokens = tokenize(question);
 
-    const [products, services, contactInfo] = await Promise.all([
-      this.prisma.product.findMany({
-        where: { deletedAt: null },
-        select: {
-          id: true,
-          name: true,
-          price: true,
-          description: true,
-          showPrice: true,
-        },
-      }),
-      this.prisma.service.findMany({
-        where: { deletedAt: null, status: ServiceStatus.published },
-        select: {
-          id: true,
-          name: true,
-          shortDescription: true,
-          hashtags: true,
-        },
-      }),
-      this.contactInfoService.getContactInfo(),
-    ]);
+    const [products, services, news, recruitments, contactInfo] =
+      await Promise.all([
+        this.prisma.product.findMany({
+          where: { deletedAt: null },
+          select: {
+            id: true,
+            name: true,
+            price: true,
+            description: true,
+            showPrice: true,
+          },
+        }),
+        this.prisma.service.findMany({
+          where: { deletedAt: null, status: ServiceStatus.published },
+          select: {
+            id: true,
+            name: true,
+            shortDescription: true,
+            hashtags: true,
+          },
+        }),
+        this.prisma.news.findMany({
+          where: { deletedAt: null, isActive: true },
+          select: { id: true, title: true, subtitle: true },
+        }),
+        this.prisma.recruitment.findMany({
+          where: { deletedAt: null, isActive: true },
+          select: { id: true, title: true, subtitle: true },
+        }),
+        this.contactInfoService.getContactInfo(),
+      ]);
 
     const sections: string[] = [];
 
-    const topProducts = products
-      .map((p) => ({
-        item: p,
-        score: scoreText(queryTokens, `${p.name} ${p.description.join(' ')}`),
-      }))
-      .filter((x) => x.score > 0)
-      .sort((a, b) => b.score - a.score)
-      .slice(0, 3);
-
+    const topProducts = topMatches(
+      queryTokens,
+      products,
+      (p) => `${p.name} ${p.description.join(' ')}`,
+    );
     if (topProducts.length > 0) {
-      const lines = topProducts.map(({ item }) => {
+      const lines = topProducts.map((item) => {
         const url = `/products/${item.id}`;
         const priceText = item.showPrice && item.price ? item.price : 'Liên hệ';
         const desc = item.description.join('. ') || 'Không có mô tả';
@@ -115,24 +134,45 @@ export class AiChatRagService {
       sections.push(`THÔNG TIN SẢN PHẨM LIÊN QUAN:\n${lines.join('\n')}`);
     }
 
-    const topServices = services
-      .map((s) => ({
-        item: s,
-        score: scoreText(
-          queryTokens,
-          `${s.name} ${s.shortDescription} ${s.hashtags.join(' ')}`,
-        ),
-      }))
-      .filter((x) => x.score > 0)
-      .sort((a, b) => b.score - a.score)
-      .slice(0, 3);
-
+    const topServices = topMatches(
+      queryTokens,
+      services,
+      (s) => `${s.name} ${s.shortDescription} ${s.hashtags.join(' ')}`,
+    );
     if (topServices.length > 0) {
-      const lines = topServices.map(({ item }) => {
+      const lines = topServices.map((item) => {
         const url = `/services/${item.id}`;
         return `- [Dịch vụ](${url}) "${item.name}": ${item.shortDescription}. Link: ${url}`;
       });
       sections.push(`THÔNG TIN DỊCH VỤ LIÊN QUAN:\n${lines.join('\n')}`);
+    }
+
+    const topNews = topMatches(
+      queryTokens,
+      news,
+      (n) => `${n.title} ${n.subtitle ?? ''}`,
+      2,
+    );
+    if (topNews.length > 0) {
+      const lines = topNews.map((item) => {
+        const url = `/news/${item.id}`;
+        return `- [Tin tức](${url}) "${item.title}": ${item.subtitle ?? ''}. Link: ${url}`;
+      });
+      sections.push(`THÔNG TIN TIN TỨC LIÊN QUAN:\n${lines.join('\n')}`);
+    }
+
+    const topRecruitments = topMatches(
+      queryTokens,
+      recruitments,
+      (r) => `${r.title} ${r.subtitle ?? ''}`,
+      2,
+    );
+    if (topRecruitments.length > 0) {
+      const lines = topRecruitments.map((item) => {
+        const url = `/recruitment/${item.id}`;
+        return `- [Tuyển dụng](${url}) "${item.title}": ${item.subtitle ?? ''}. Link: ${url}`;
+      });
+      sections.push(`THÔNG TIN TUYỂN DỤNG LIÊN QUAN:\n${lines.join('\n')}`);
     }
 
     sections.push(

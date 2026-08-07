@@ -1,12 +1,16 @@
 import { Injectable } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
 import { AiChatSettingsService } from './ai-chat-settings.service';
-import { AiProviderProfileService } from './ai-provider-profile.service';
+import {
+  AiProviderProfileService,
+  RuntimeProviderConfig,
+} from './ai-provider-profile.service';
 import { AiChatRagService } from './ai-chat-rag.service';
 import {
   AiChatOpenAiClientService,
   ChatCompletionMessage,
 } from './ai-chat-openai-client.service';
+import { AiChatErrorLogService } from './ai-chat-error-log.service';
 import { AiChatRole } from '@prisma/client';
 
 const MAX_HISTORY_MESSAGES = 6;
@@ -19,6 +23,7 @@ export class AiChatService {
     private readonly providerProfileService: AiProviderProfileService,
     private readonly ragService: AiChatRagService,
     private readonly openaiClient: AiChatOpenAiClientService,
+    private readonly errorLogService: AiChatErrorLogService,
   ) {}
 
   private async getHistory(
@@ -35,16 +40,62 @@ export class AiChatService {
     }));
   }
 
+  /**
+   * Thử tuần tự các provider đang bật theo priority. Chỉ chuyển sang provider
+   * kế tiếp nếu provider hiện tại lỗi TRƯỚC KHI phát ra token đầu tiên — một
+   * khi đã stream được 1 phần cho client thì không thể "quay lại" đổi provider
+   * giữa dòng, lỗi giữa dòng sẽ được ném ra như bình thường.
+   */
+  private async *streamWithFallback(
+    providers: RuntimeProviderConfig[],
+    messages: ChatCompletionMessage[],
+    temperature: number,
+    sessionId: string,
+  ): AsyncGenerator<string> {
+    let lastError: unknown;
+
+    for (const provider of providers) {
+      const generator = this.openaiClient.streamChatCompletion({
+        baseUrl: provider.baseUrl,
+        apiKey: provider.apiKey,
+        model: provider.model,
+        messages,
+        temperature,
+      });
+
+      let first: IteratorResult<string>;
+      try {
+        first = await generator.next();
+      } catch (err) {
+        lastError = err;
+        await this.errorLogService.log({
+          sessionId,
+          providerName: provider.name,
+          errorMessage: err instanceof Error ? err.message : String(err),
+        });
+        continue; // thử provider kế tiếp
+      }
+
+      if (!first.done) yield first.value;
+      yield* generator;
+      return;
+    }
+
+    throw lastError instanceof Error
+      ? lastError
+      : new Error('Tất cả provider AI đã cấu hình đều lỗi.');
+  }
+
   async *sendMessage(
     sessionId: string,
     message: string,
   ): AsyncGenerator<string> {
-    const [settings, provider] = await Promise.all([
+    const [settings, providers] = await Promise.all([
       this.settingsService.getRuntimeConfig(),
-      this.providerProfileService.getActiveDecryptedForRuntime(),
+      this.providerProfileService.getActiveProvidersForRuntime(),
     ]);
 
-    if (!settings.isEnabled || !provider) {
+    if (!settings.isEnabled || providers.length === 0) {
       throw new Error('CHAT_DISABLED');
     }
 
@@ -67,15 +118,23 @@ export class AiChatService {
     ];
 
     let assembled = '';
-    for await (const token of this.openaiClient.streamChatCompletion({
-      baseUrl: provider.baseUrl,
-      apiKey: provider.apiKey,
-      model: provider.model,
-      messages,
-      temperature: settings.temperature,
-    })) {
-      assembled += token;
-      yield token;
+    try {
+      for await (const token of this.streamWithFallback(
+        providers,
+        messages,
+        settings.temperature,
+        sessionId,
+      )) {
+        assembled += token;
+        yield token;
+      }
+    } catch (err) {
+      await this.errorLogService.log({
+        sessionId,
+        providerName: 'ALL',
+        errorMessage: err instanceof Error ? err.message : String(err),
+      });
+      throw err;
     }
 
     if (assembled.trim().length > 0) {
@@ -87,45 +146,5 @@ export class AiChatService {
         },
       });
     }
-  }
-
-  async getLogs(page: number, pageSize: number) {
-    const skip = (page - 1) * pageSize;
-
-    const sessions = await this.prisma.aiChatMessage.groupBy({
-      by: ['sessionId'],
-      _count: { _all: true },
-      _max: { createdAt: true },
-      orderBy: { _max: { createdAt: 'desc' } },
-      skip,
-      take: pageSize,
-    });
-
-    const countResult = await this.prisma.$queryRaw<
-      { count: bigint }[]
-    >`SELECT COUNT(DISTINCT session_id) as count FROM ai_chat_messages`;
-    const totalSessions = Number(countResult[0]?.count || 0);
-
-    const sessionData = await Promise.all(
-      sessions.map(async (s) => {
-        const messages = await this.prisma.aiChatMessage.findMany({
-          where: { sessionId: s.sessionId },
-          orderBy: { createdAt: 'asc' },
-        });
-        return {
-          sessionId: s.sessionId,
-          messageCount: s._count._all,
-          lastMessageAt: s._max.createdAt,
-          messages,
-        };
-      }),
-    );
-
-    return {
-      page,
-      pageSize,
-      totalSessions,
-      sessions: sessionData,
-    };
   }
 }

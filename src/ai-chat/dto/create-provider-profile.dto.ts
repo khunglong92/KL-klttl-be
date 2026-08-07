@@ -1,10 +1,12 @@
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 import {
+  IsInt,
   IsNotEmpty,
   IsOptional,
   IsString,
   IsUrl,
   MaxLength,
+  Min,
 } from 'class-validator';
 
 export class CreateProviderProfileDto {
@@ -39,4 +41,13 @@ export class CreateProviderProfileDto {
   @IsNotEmpty()
   @MaxLength(255)
   model: string;
+
+  @ApiPropertyOptional({
+    description:
+      'Thứ tự thử fallback khi provider khác lỗi (0 = thử trước). Mặc định xếp cuối hàng.',
+  })
+  @IsInt()
+  @Min(0)
+  @IsOptional()
+  priority?: number;
 }
