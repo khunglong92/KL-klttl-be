@@ -95,6 +95,15 @@ jobs:
               fi
             fi
 
+            echo "🔎 Kiểm tra DATABASE_URL có trong be.env không (báo lỗi rõ sớm, thay vì để Prisma báo lỗi khó hiểu)"
+            DB_URL_LINE=$(grep '^DATABASE_URL=' /home/deploy/env/be.env || true)
+            if [ -z "$DB_URL_LINE" ] || [ "$DB_URL_LINE" = "DATABASE_URL=" ]; then
+              echo "❌ DATABASE_URL thiếu hoặc trống trong /home/deploy/env/be.env trên VPS."
+              echo "   → SSH vào VPS, kiểm tra/thêm dòng DATABASE_URL=... vào file đó,"
+              echo "     hoặc điền secret BE_ENV_FILE trên GitHub cho đầy đủ."
+              exit 1
+            fi
+
             echo "🔐 Login GHCR"
             docker login ghcr.io -u ${{ github.repository_owner }} -p ${{ secrets.GHCR_TOKEN }}
 
